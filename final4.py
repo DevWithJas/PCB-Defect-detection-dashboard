@@ -12,6 +12,8 @@ from albumentations.pytorch import ToTensorV2
 import random
 import shutil
 import tempfile
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+import av
 
 # ---------------------------------
 # Configuration & Global Variables
@@ -117,7 +119,6 @@ model = get_base_model(num_classes=len(CLASSES))
 st.sidebar.title("🔧 Options Panel")
 st.sidebar.markdown("**Navigate the high-tech dashboard using these options!** 🤖")
 
-# Now we have 4 top-level steps (with About Project):
 app_mode = st.sidebar.radio(
     "📂 Primary Steps",
     ["About Project 📜", "Upload Model 🧠", "Upload Dataset 🗂️", "Data Visualization 📊"]
@@ -144,27 +145,6 @@ def load_image_as_tensor(image_path):
     sample = to_tensor(image=image)
     img_tensor = sample['image']
     return img_tensor
-
-def display_sample_images(image_paths, num_samples=10):
-    valid_image_paths = [
-        p for p in image_paths if os.path.exists(p) and p.lower().endswith((".jpg", ".jpeg", ".png"))
-    ]
-    if not valid_image_paths:
-        st.error("No valid images found in the dataset.")
-        return
-
-    samples = random.sample(valid_image_paths, min(num_samples, len(valid_image_paths)))
-    cols = st.columns(5)  # Adjust the number of columns as needed
-    idx = 0
-    for sample_path in samples:
-        img = cv2.imread(sample_path, cv2.IMREAD_COLOR)
-        if img is None:
-            st.warning(f"⚠️ Failed to load image: {sample_path}")
-            continue  # Skip invalid images
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        with cols[idx % 5]:
-            st.image(img, caption=os.path.basename(sample_path), use_container_width=True)
-        idx += 1
 
 def display_technical_images(image_paths, num_samples=5):
     """
@@ -223,8 +203,23 @@ def draw_boxes_on_frame(frame, boxes, scores, labels, threshold=0.3):
     return frame
 
 # ---------------------------------
-# Real-Time Detection
+# WebRTC for Real-Time Detection
 # ---------------------------------
+RTC_CONFIGURATION = RTCConfiguration(
+    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+)
+
+def video_frame_callback(frame):
+    img = frame.to_ndarray(format="bgr24")
+    frame_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    frame_tensor = ToTensorV2()(image=frame_rgb)['image']
+
+    confidence_threshold = st.session_state["model_conf_threshold"]
+    boxes, scores, labels = run_inference_on_image_tensor(frame_tensor, confidence_threshold=confidence_threshold)
+    annotated_frame = draw_boxes_on_frame(img, boxes, scores, labels, threshold=confidence_threshold)
+
+    return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
+
 def real_time_detection():
     st.header("🎥 Real-Time PCB Defect Detection")
     if not st.session_state["model_loaded"]:
@@ -232,37 +227,18 @@ def real_time_detection():
         return
 
     st.write("Activate your camera to test real-time defect detection!")
-
-    # Add Confidence Threshold Slider
     confidence_threshold = st.slider(
         "Set Confidence Threshold", 0.0, 1.0, st.session_state["model_conf_threshold"], 0.01
     )
+    st.session_state["model_conf_threshold"] = confidence_threshold
 
-    start_button = st.button("Start Detection")
-    if start_button:
-        cap = cv2.VideoCapture(0)
-        st_frame = st.empty()
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                st.error("Failed to grab frame from camera.")
-                break
-
-            # Preprocess frame
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-            frame_tensor = ToTensorV2()(image=frame_rgb)['image']
-
-            # Run inference
-            boxes, scores, labels = run_inference_on_image_tensor(frame_tensor, confidence_threshold=confidence_threshold)
-
-            # Draw results on frame
-            annotated_frame = draw_boxes_on_frame(frame, boxes, scores, labels, threshold=confidence_threshold)
-
-            # Display frame
-            st_frame.image(annotated_frame, channels="BGR", use_container_width=True)
-
-        cap.release()
-        cv2.destroyAllWindows()
+    webrtc_streamer(
+        key="example",
+        mode=WebRtcMode.SENDRECV,
+        rtc_configuration=RTC_CONFIGURATION,
+        video_frame_callback=video_frame_callback,
+        media_stream_constraints={"video": True, "audio": False},
+    )
 
 # ---------------------------------
 # Pages
@@ -272,8 +248,8 @@ if app_mode == "About Project 📜":
     st.markdown("""
     <style>
     .about-text {
-        font-size: 22px; /* Adjust as needed */
-        line-height: 1.6; /* Optional: improve readability */
+        font-size: 22px;
+        line-height: 1.6;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -283,13 +259,13 @@ if app_mode == "About Project 📜":
     Welcome to the High-Tech PCB Defect Detection Dashboard!
     
     This application leverages a Faster R-CNN object detection model to identify defects on Printed Circuit Boards (PCBs). 
-    By uploading your custom trained model and a dataset of PCB images, you can visualize, test, and even run real-time detection.
+    By uploading your custom trained model and a dataset of PCB images, you can visualize, test, and run real-time detection.
     
     **Key Features:**
     - **Model Upload & Management:** Easily upload your pre-trained Faster R-CNN model.
-    - **Dataset Handling:** Upload a zip of PCB images and visualize them in different layouts.
-    - **Data Visualization:** View a gallery of images or a more technical representation with histograms.
-    - **Testing & Real-Time Detection:** Run inference on static images or in real-time using your camera feed.
+    - **Dataset Handling:** Upload a zip of PCB images and visualize them.
+    - **Data Visualization:** View images with technical histograms.
+    - **Testing & Real-Time Detection:** Run inference on static images or in real-time using WebRTC.
     
     </div>
     """, unsafe_allow_html=True)
@@ -356,18 +332,10 @@ elif app_mode == "Data Visualization 📊":
     if not st.session_state["images_loaded"]:
         st.warning("Please upload your dataset first.")
     else:
-        # Add a toggle for technical or gallery view
-        view_mode = st.radio("Select View Mode", ["Gallery View", "Technical View"])
-        
-        if view_mode == "Gallery View":
-            st.write("✨ Displaying a random sample of images from the uploaded dataset:")
-            display_sample_images(st.session_state["image_list"], num_samples=10)
-            st.info("⚡ You can now proceed to 'Test Model' (via advanced options) if the model is also loaded.")
-        else:
-            st.write("🔧 Displaying Technical Layout of Selected Images:")
-            st.write("Here, you will see each image alongside a histogram of its pixel intensities.")
-            display_technical_images(st.session_state["image_list"], num_samples=5)
-            st.info("This technical visualization helps you inspect image quality and pixel distributions.")
+        st.write("🔧 Displaying Technical Layout of Selected Images:")
+        st.write("Here, you will see each image alongside a histogram of its pixel intensities.")
+        display_technical_images(st.session_state["image_list"], num_samples=5)
+        st.info("This technical visualization helps you inspect image quality and pixel distributions.")
 
 elif app_mode == "Test Model ⚡":
     st.header("⚡ Test Your Model on the Uploaded Images")
