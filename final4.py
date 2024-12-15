@@ -61,7 +61,7 @@ st.markdown(
     f"""
     <style>
     [data-testid="stAppViewContainer"] > .main {{
-        background: url("https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExbnZpdGlzbTZocHU4b2dsb2pqcXdvZmg0bWJvdWR5ZmwwNXJ0dDIyZyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/AEzxJYSBlDbfW/giphy.webp");
+        background: url("https://i.gifer.com/2RNb.gifhttps://i.gifer.com/2RNb.gif");
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
