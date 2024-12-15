@@ -61,7 +61,7 @@ st.markdown(
     f"""
     <style>
     [data-testid="stAppViewContainer"] > .main {{
-        background: url("https://i.gifer.com/2RNb.gifhttps://i.gifer.com/2RNb.gif");
+        background: url("https://i.gifer.com/2RNb.gif");
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
