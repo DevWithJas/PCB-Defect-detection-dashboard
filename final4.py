@@ -146,11 +146,21 @@ def load_image_as_tensor(image_path):
     return img_tensor
 
 def display_sample_images(image_paths, num_samples=10):
-    samples = random.sample(image_paths, min(num_samples, len(image_paths)))
+    valid_image_paths = [
+        p for p in image_paths if os.path.exists(p) and p.lower().endswith((".jpg", ".jpeg", ".png"))
+    ]
+    if not valid_image_paths:
+        st.error("No valid images found in the dataset.")
+        return
+
+    samples = random.sample(valid_image_paths, min(num_samples, len(valid_image_paths)))
     cols = st.columns(5)  # Adjust the number of columns as needed
     idx = 0
     for sample_path in samples:
         img = cv2.imread(sample_path, cv2.IMREAD_COLOR)
+        if img is None:
+            st.warning(f"⚠️ Failed to load image: {sample_path}")
+            continue  # Skip invalid images
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         with cols[idx % 5]:
             st.image(img, caption=os.path.basename(sample_path), use_container_width=True)
